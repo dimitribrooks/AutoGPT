@@ -137,3 +137,13 @@
   font-size: 12px;
   margin-top: 5px;
 }
+
+.object-input {
+  margin-left: 10px;
+  border-left: 1px solid #555;
+  padding-left: 10px;
+}
+
+.nested-input {
+  margin-top: 5px;
+}

@@ -44,39 +44,33 @@ type AvailableNode = {
   outputSchema: Schema;
 };
 
-interface ExecData {
-  node_id: string;
-  status: string;
-  output_data: any;
-}
-
-const Sidebar: React.FC<{isOpen: boolean, availableNodes: AvailableNode[], addNode: (id: string, name: string) => void}> =
+const Sidebar: React.FC<{isOpen: boolean, availableNodes: AvailableNode[], addNode: (id: string, name: string) => void}> = 
   ({isOpen, availableNodes, addNode}) => {
   const [searchQuery, setSearchQuery] = useState('');
-
+  
   if (!isOpen) return null;
-
-  const filteredNodes = availableNodes.filter(node =>
+  
+  const filteredNodes = availableNodes.filter(node => 
     node.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
     <div style={{
-      position: 'absolute',
-      left: 0,
-      top: 0,
-      bottom: 0,
-      width: '250px',
-      backgroundColor: '#333',
+      position: 'absolute', 
+      left: 0, 
+      top: 0, 
+      bottom: 0, 
+      width: '250px', 
+      backgroundColor: '#333', 
       padding: '20px',
       zIndex: 4,
       overflowY: 'auto'
     }}>
       <h3 style={{color: '#fff'}}>Nodes</h3>
-      <input
-        type="text"
-        placeholder="Search nodes..."
-        style={{width: '100%', marginBottom: '10px', padding: '5px'}}
+      <input 
+        type="text" 
+        placeholder="Search nodes..." 
+        style={{width: '100%', marginBottom: '10px', padding: '5px'}} 
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
       />
@@ -184,15 +178,33 @@ const Flow: React.FC = () => {
 
   const prepareNodeInputData = (node: Node<CustomNodeData>, allNodes: Node<CustomNodeData>[], allEdges: Edge[]) => {
     console.log("Preparing input data for node:", node.id, node.data.blockType);
-
+    
     const blockSchema = availableNodes.find(n => n.id === node.data.block_id)?.inputSchema;
-
+    
     if (!blockSchema) {
       console.error(`Schema not found for block ID: ${node.data.block_id}`);
       return {};
     }
 
-    let inputData: { [key: string]: any } = { ...node.data.hardcodedValues };
+    const getNestedData = (schema: Schema, values: { [key: string]: any }) => {
+      let inputData: { [key: string]: any } = {};
+
+      if (schema.properties) {
+        Object.keys(schema.properties).forEach((key) => {
+          if (values[key] !== undefined) {
+            if (schema.properties[key].type === 'object') {
+              inputData[key] = getNestedData(schema.properties[key], values[key]);
+            } else {
+              inputData[key] = values[key];
+            }
+          }
+        });
+      }
+
+      return inputData;
+    };
+
+    let inputData = getNestedData(blockSchema, node.data.hardcodedValues);
 
     // Get data from connected nodes
     const incomingEdges = allEdges.filter(edge => edge.target === node.id);
@@ -246,11 +258,19 @@ const Flow: React.FC = () => {
         };
       });
 
+      const links = edges.map(edge => ({
+        source_id: edge.source,
+        sink_id: edge.target,
+        source_name: edge.sourceHandle || '',
+        sink_name: edge.targetHandle || ''
+      }));
+
       const payload = {
         id: agentId || '',
         name: 'Agent Name',
         description: 'Agent Description',
         nodes: formattedNodes,
+        links: links  // Ensure this field is included
       };
 
       console.log("Payload being sent to the API:", JSON.stringify(payload, null, 2));
@@ -268,14 +288,12 @@ const Flow: React.FC = () => {
       }
 
       const createData = await createResponse.json();
-
       const newAgentId = createData.id;
       setAgentId(newAgentId);
 
       console.log('Response from the API:', JSON.stringify(createData, null, 2));
 
       const executeResponse = await fetch(`${apiUrl}/graphs/${newAgentId}/execute`, {
-
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -290,14 +308,15 @@ const Flow: React.FC = () => {
       const executeData = await executeResponse.json();
       const runId = executeData.id;
 
-
       const pollExecution = async () => {
         const response = await fetch(`${apiUrl}/graphs/${newAgentId}/executions/${runId}`);
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
+
         const data = await response.json();
-        data.forEach(updateNodeData);
+        updateNodesWithExecutionData(data);
+
         if (data.every((node: any) => node.status === 'COMPLETED')) {
           console.log('All nodes completed execution');
         } else {
@@ -333,25 +352,6 @@ const Flow: React.FC = () => {
   };
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-
-    const updateNodeData = (execData: ExecData) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === execData.node_id) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              status: execData.status,
-              output_data: execData.output_data,
-              isPropertiesOpen: true, // Open the properties
-            },
-          };
-        }
-        return node;
-      })
-    );
-  };
 
   return (
     <div style={{ height: '100vh', width: '100%' }}>
