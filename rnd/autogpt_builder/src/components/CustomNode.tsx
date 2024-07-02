@@ -8,6 +8,8 @@ type Schema = {
   type: string;
   properties: { [key: string]: any };
   required?: string[];
+  enum?: string[];
+  items?: Schema;
 };
 
 type CustomNodeData = {
@@ -80,16 +82,11 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
     const newValues = JSON.parse(JSON.stringify(data.hardcodedValues));
     let current = newValues;
 
-    if (keys[0] === 'creds' && keys.length > 2) {
-      if (!current['creds']) current['creds'] = {};
-      current['creds'][keys[2]] = value;
-    } else {
-      for (let i = 0; i < keys.length - 1; i++) {
-        if (!current[keys[i]]) current[keys[i]] = {};
-        current = current[keys[i]];
-      }
-      current[keys[keys.length - 1]] = value;
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!current[keys[i]]) current[keys[i]] = {};
+      current = current[keys[i]];
     }
+    current[keys[keys.length - 1]] = value;
 
     console.log(`Updating hardcoded values for node ${id}:`, newValues);
     data.setHardcodedValues(newValues);
@@ -98,9 +95,6 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
 
   const getValue = (key: string) => {
     const keys = key.split('.');
-    if (keys[0] === 'creds' && keys.length > 2) {
-      return data.hardcodedValues?.creds?.[keys[2]] ?? '';
-    }
     return keys.reduce((acc, k) => (acc && acc[k] !== undefined) ? acc[k] : '', data.hardcodedValues);
   };
 
@@ -189,12 +183,32 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
 
     switch (schema.type) {
       case 'string':
-        return (
-          <div key={fullKey} className="input-container">
-            {renderClickableInput(value || `Enter ${key}`)}
-            {error && <span className="error-message">{error}</span>}
-          </div>
-        );
+        if (schema.enum) {
+          return (
+            <div key={fullKey} className="input-container">
+              <select
+                value={value || ''}
+                onChange={(e) => handleInputChange(fullKey, e.target.value)}
+                className="select-input"
+              >
+                <option value="">Select {key}</option>
+                {schema.enum.map((option: string) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              {error && <span className="error-message">{error}</span>}
+            </div>
+          );
+        } else {
+          return (
+            <div key={fullKey} className="input-container">
+              {renderClickableInput(value || `Enter ${key}`)}
+              {error && <span className="error-message">{error}</span>}
+            </div>
+          );
+        }
       case 'boolean':
         return (
           <div key={fullKey} className="input-container">
@@ -214,17 +228,41 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
       case 'integer':
         return (
           <div key={fullKey} className="input-container">
-            {renderClickableInput(value !== undefined ? value.toString() : `Enter ${key}`)}
+            <input
+              type="number"
+              value={value || ''}
+              onChange={(e) => handleInputChange(fullKey, parseFloat(e.target.value))}
+              className="number-input"
+            />
             {error && <span className="error-message">{error}</span>}
           </div>
         );
       case 'array':
-        return (
-          <div key={fullKey} className="input-container">
-            {renderClickableInput(value ? `${key} (Array)` : `Enter ${key} (Array)`)}
-            {error && <span className="error-message">{error}</span>}
-          </div>
-        );
+        if (schema.items && schema.items.type === 'string') {
+          const arrayValues = value || [];
+          return (
+            <div key={fullKey} className="input-container">
+              {arrayValues.map((item: string, index: number) => (
+                <div key={`${fullKey}-${index}`} className="array-item-container">
+                  <input
+                    type="text"
+                    value={item}
+                    onChange={(e) => handleInputChange(`${fullKey}.${index}`, e.target.value)}
+                    className="array-item-input"
+                  />
+                  <button onClick={() => handleInputChange(`${fullKey}.${index}`, '')} className="array-item-remove">
+                    &times;
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => handleInputChange(fullKey, [...arrayValues, ''])} className="array-item-add">
+                Add Item
+              </button>
+              {error && <span className="error-message">{error}</span>}
+            </div>
+          );
+        }
+        return null;
       default:
         return (
           <div key={fullKey} className="input-container">
