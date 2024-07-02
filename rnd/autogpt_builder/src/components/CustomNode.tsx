@@ -10,6 +10,10 @@ type Schema = {
   required?: string[];
   enum?: string[];
   items?: Schema;
+  additionalProperties?: { type: string };
+  allOf?: any[];
+  anyOf?: any[];
+  oneOf?: any[];
 };
 
 type CustomNodeData = {
@@ -128,150 +132,183 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
     setActiveKey(null);
   };
 
-  const renderInputField = (key: string, schema: any, parentKey: string = ''): JSX.Element => {
-    const fullKey = parentKey ? `${parentKey}.${key}` : key;
-    const error = errors[fullKey];
-    const value = getValue(fullKey);
+const renderInputField = (key: string, schema: any, parentKey: string = ''): JSX.Element => {
+  const fullKey = parentKey ? `${parentKey}.${key}` : key;
+  const error = errors[fullKey];
+  const value = getValue(fullKey);
 
-    if (isHandleConnected(fullKey)) {
-      return <div className="connected-input">Connected</div>;
-    }
+  if (isHandleConnected(fullKey)) {
+    return <div className="connected-input">Connected</div>;
+  }
 
-    const renderClickableInput = (displayValue: string) => (
-      <div className="clickable-input" onClick={() => handleInputClick(fullKey)}>
-        {displayValue}
+  const renderClickableInput = (displayValue: string) => (
+    <div className="clickable-input" onClick={() => handleInputClick(fullKey)}>
+      {displayValue}
+    </div>
+  );
+
+  if (schema.type === 'object' && schema.properties) {
+    return (
+      <div key={fullKey} className="object-input">
+        <strong>{key}:</strong>
+        {Object.entries(schema.properties).map(([propKey, propSchema]: [string, any]) => (
+          <div key={`${fullKey}.${propKey}`} className="nested-input">
+            {renderInputField(propKey, propSchema, fullKey)}
+          </div>
+        ))}
       </div>
     );
+  }
 
-    if (schema.type === 'object' && schema.properties) {
-      return (
-        <div key={fullKey} className="object-input">
-          <strong>{key}:</strong>
-          {Object.entries(schema.properties).map(([propKey, propSchema]: [string, any]) => (
-            <div key={`${fullKey}.${propKey}`} className="nested-input">
-              {renderInputField(propKey, propSchema, fullKey)}
+  if (schema.type === 'object' && schema.additionalProperties) {
+    const objectValue = value || {};
+    return (
+      <div key={fullKey} className="object-input">
+        <strong>{key}:</strong>
+        {Object.entries(objectValue).map(([propKey, propValue]: [string, any]) => (
+          <div key={`${fullKey}.${propKey}`} className="nested-input">
+            <div className="clickable-input" onClick={() => handleInputClick(`${fullKey}.${propKey}`)}>
+              {propKey}: {typeof propValue === 'object' ? JSON.stringify(propValue, null, 2) : propValue}
             </div>
-          ))}
+            <button onClick={() => handleInputChange(`${fullKey}.${propKey}`, undefined)} className="array-item-remove">
+              &times;
+            </button>
+          </div>
+        ))}
+        <button onClick={() => handleInputChange(fullKey, { ...objectValue, '': '' })} className="array-item-add">
+          Add Property
+        </button>
+        {error && <span className="error-message">{error}</span>}
+      </div>
+    );
+  }
+
+  if (schema.anyOf) {
+    const types = schema.anyOf.map((s: any) => s.type);
+    if (types.includes('string') && types.includes('null')) {
+      return (
+        <div key={fullKey} className="input-container">
+          {renderClickableInput(value || `Enter ${key} (optional)`)}
+          {error && <span className="error-message">{error}</span>}
         </div>
       );
     }
+  }
 
-    if (schema.anyOf) {
-      const types = schema.anyOf.map((s: any) => s.type);
-      if (types.includes('string') && types.includes('null')) {
+  if (schema.allOf) {
+    return (
+      <div key={fullKey} className="object-input">
+        <strong>{key}:</strong>
+        {schema.allOf[0].properties && Object.entries(schema.allOf[0].properties).map(([propKey, propSchema]: [string, any]) => (
+          <div key={`${fullKey}.${propKey}`} className="nested-input">
+            {renderInputField(propKey, propSchema, fullKey)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (schema.oneOf) {
+    return (
+      <div key={fullKey} className="object-input">
+        <strong>{key}:</strong>
+        {schema.oneOf[0].properties && Object.entries(schema.oneOf[0].properties).map(([propKey, propSchema]: [string, any]) => (
+          <div key={`${fullKey}.${propKey}`} className="nested-input">
+            {renderInputField(propKey, propSchema, fullKey)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  switch (schema.type) {
+    case 'string':
+      return schema.enum ? (
+        <div key={fullKey} className="input-container">
+          <select
+            value={value || ''}
+            onChange={(e) => handleInputChange(fullKey, e.target.value)}
+            className="select-input"
+          >
+            <option value="">Select {key}</option>
+            {schema.enum.map((option: string) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          {error && <span className="error-message">{error}</span>}
+        </div>
+      ) : (
+        <div key={fullKey} className="input-container">
+          {renderClickableInput(value || `Enter ${key}`)}
+          {error && <span className="error-message">{error}</span>}
+        </div>
+      );
+    case 'boolean':
+      return (
+        <div key={fullKey} className="input-container">
+          <select
+            value={value === undefined ? '' : value.toString()}
+            onChange={(e) => handleInputChange(fullKey, e.target.value === 'true')}
+            className="select-input"
+          >
+            <option value="">Select {key}</option>
+            <option value="true">True</option>
+            <option value="false">False</option>
+          </select>
+          {error && <span className="error-message">{error}</span>}
+        </div>
+      );
+    case 'number':
+    case 'integer':
+      return (
+        <div key={fullKey} className="input-container">
+          <input
+            type="number"
+            value={value || ''}
+            onChange={(e) => handleInputChange(fullKey, parseFloat(e.target.value))}
+            className="number-input"
+          />
+          {error && <span className="error-message">{error}</span>}
+        </div>
+      );
+    case 'array':
+      if (schema.items && schema.items.type === 'string') {
+        const arrayValues = value || [];
         return (
           <div key={fullKey} className="input-container">
-            {renderClickableInput(value || `Enter ${key} (optional)`)}
+            {arrayValues.map((item: string, index: number) => (
+              <div key={`${fullKey}.${index}`} className="array-item-container">
+                <input
+                  type="text"
+                  value={item}
+                  onChange={(e) => handleInputChange(`${fullKey}.${index}`, e.target.value)}
+                  className="array-item-input"
+                />
+                <button onClick={() => handleInputChange(`${fullKey}.${index}`, '')} className="array-item-remove">
+                  &times;
+                </button>
+              </div>
+            ))}
+            <button onClick={() => handleInputChange(fullKey, [...arrayValues, ''])} className="array-item-add">
+              Add Item
+            </button>
             {error && <span className="error-message">{error}</span>}
           </div>
         );
       }
-    }
-
-    if (schema.allOf) {
+      return null;
+    default:
       return (
-        <div key={fullKey} className="object-input">
-          <strong>{key}:</strong>
-          {schema.allOf[0].properties && Object.entries(schema.allOf[0].properties).map(([propKey, propSchema]: [string, any]) => (
-            <div key={`${fullKey}.${propKey}`} className="nested-input">
-              {renderInputField(propKey, propSchema, fullKey)}
-            </div>
-          ))}
+        <div key={fullKey} className="input-container">
+          {renderClickableInput(value ? `${key} (Complex)` : `Enter ${key} (Complex)`)}
+          {error && <span className="error-message">{error}</span>}
         </div>
       );
-    }
+  }
+};
 
-    switch (schema.type) {
-      case 'string':
-        if (schema.enum) {
-          return (
-            <div key={fullKey} className="input-container">
-              <select
-                value={value || ''}
-                onChange={(e) => handleInputChange(fullKey, e.target.value)}
-                className="select-input"
-              >
-                <option value="">Select {key}</option>
-                {schema.enum.map((option: string) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-              {error && <span className="error-message">{error}</span>}
-            </div>
-          );
-        } else {
-          return (
-            <div key={fullKey} className="input-container">
-              {renderClickableInput(value || `Enter ${key}`)}
-              {error && <span className="error-message">{error}</span>}
-            </div>
-          );
-        }
-      case 'boolean':
-        return (
-          <div key={fullKey} className="input-container">
-            <select
-              value={value === undefined ? '' : value.toString()}
-              onChange={(e) => handleInputChange(fullKey, e.target.value === 'true')}
-              className="select-input"
-            >
-              <option value="">Select {key}</option>
-              <option value="true">True</option>
-              <option value="false">False</option>
-            </select>
-            {error && <span className="error-message">{error}</span>}
-          </div>
-        );
-      case 'number':
-      case 'integer':
-        return (
-          <div key={fullKey} className="input-container">
-            <input
-              type="number"
-              value={value || ''}
-              onChange={(e) => handleInputChange(fullKey, parseFloat(e.target.value))}
-              className="number-input"
-            />
-            {error && <span className="error-message">{error}</span>}
-          </div>
-        );
-      case 'array':
-        if (schema.items && schema.items.type === 'string') {
-          const arrayValues = value || [];
-          return (
-            <div key={fullKey} className="input-container">
-              {arrayValues.map((item: string, index: number) => (
-                <div key={`${fullKey}-${index}`} className="array-item-container">
-                  <input
-                    type="text"
-                    value={item}
-                    onChange={(e) => handleInputChange(`${fullKey}.${index}`, e.target.value)}
-                    className="array-item-input"
-                  />
-                  <button onClick={() => handleInputChange(`${fullKey}.${index}`, '')} className="array-item-remove">
-                    &times;
-                  </button>
-                </div>
-              ))}
-              <button onClick={() => handleInputChange(fullKey, [...arrayValues, ''])} className="array-item-add">
-                Add Item
-              </button>
-              {error && <span className="error-message">{error}</span>}
-            </div>
-          );
-        }
-        return null;
-      default:
-        return (
-          <div key={fullKey} className="input-container">
-            {renderClickableInput(value ? `${key} (Complex)` : `Enter ${key} (Complex)`)}
-            {error && <span className="error-message">{error}</span>}
-          </div>
-        );
-    }
-  };
 
   const validateInputs = () => {
     const newErrors: { [key: string]: string | null } = {};
@@ -360,3 +397,4 @@ const CustomNode: FC<NodeProps<CustomNodeData>> = ({ data, id }) => {
 };
 
 export default memo(CustomNode);
+
